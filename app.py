@@ -4,7 +4,11 @@ import sys
 import datetime
 
 
-sys.tracebacklimit = 0
+test_tlfb_filepath = "/Users/ycui1/PycharmProjects/abstcal/tests/test_tlfb.csv"
+test_visit_filepath = "/Users/ycui1/PycharmProjects/abstcal/tests/test_visit.csv"
+test_bio_filepath = "/Users/ycui1/PycharmProjects/abstcal/tests/test_co.csv"
+
+# sys.tracebacklimit = 0
 
 duplicate_options_mapped = {
     "Keep the minimal only": "min",
@@ -20,7 +24,7 @@ outlier_options_mapped = {
 }
 outlier_options = list(outlier_options_mapped)
 
-# tlfb_filepath = "/Users/ycui1/PycharmProjects/abstcal/tests/test_tlfb.csv"
+
 tlfb_data_params = dict.fromkeys([
     "filepath",
     "cutoff",
@@ -33,18 +37,18 @@ tlfb_data_params = dict.fromkeys([
     "allowed_min",
     "allowed_max"
 ])
-tlfb_imputation_options = [
-    "None (no imputations)",
-    "Linear (a linear interpolation in the gap)",
-    "Uniform (the same value in the gap)",
-    "Specified Value"
-]
+
+tlfb_imputation_options_mapped = {
+    "None (no imputations)": None,
+    "Linear (a linear interpolation in the gap)": "linear",
+    "Uniform (the same value in the gap)": "uniform",
+    "Specified Value": 0
+}
+tlfb_imputation_options = list(tlfb_imputation_options_mapped)
 
 visit_data_params = dict.fromkeys([
     "filepath",
     "file_format",
-    "subjects",
-    "visits",
     "expected_visits",
     "duplicate_mode",
     "imputation_mode",
@@ -57,20 +61,25 @@ visit_file_formats = [
     "Long",
     "Wide"
 ]
-visit_imputation_options = [
-    "None (no imputations)",
-    "The most frequent interval since the anchor",
-    "The mean interval since the anchor"
-]
+visit_imputation_options_mapped = {
+    "None (no imputations)": None,
+    "The most frequent interval since the anchor": "freq",
+    "The mean interval since the anchor": "mean"
+}
+visit_imputation_options = list(visit_imputation_options_mapped)
 
 bio_data_params = dict.fromkeys([
     "filepath",
     "cutoff",
+    "overridden_amount",
     "duplicate_mode",
     "imputation_mode",
     "allowed_min",
     "allowed_max",
-    "outliers_mode"
+    "outliers_mode",
+    "enable_interpolation",
+    "half_life",
+    "days_interpolation"
 ])
 
 abst_target_dir = None
@@ -113,30 +122,42 @@ def _load_tlfb_elements():
     1000 | 02/05/2019 | 12
       \n\n
     """)
-    tlfb_data_params['filepath'] = st.text_input("Specify the file path to the TLFB data on your computer.")
+    tlfb_data_params['filepath'] = st.text_input(
+        "Specify the file path to the TLFB data on your computer.",
+        value=test_tlfb_filepath
+    )
     tlfb_subjects = list()
     if tlfb_data_params['filepath']:
         tlfb_data = ac.TLFBData(tlfb_data_params['filepath'])
         tlfb_subjects = sorted(tlfb_data.subject_ids)
 
-
     with st.beta_expander("TLFB Data Processing Advanced Configurations"):
+        st.write("1. Specify the cutoff value for abstinence")
         tlfb_data_params["cutoff"] = st.number_input(
-            "1. Specify the cutoff value for abstinence (default: 0)",
+            "Equal or below the specified value is considered abstinent.",
             step=None
         )
-        tlfb_data_params["subjects"] = st.multiselect(
-            "2. Choose the subjects of the TLFB data whose abstinence will be calculated.",
-            tlfb_subjects,
-            default=tlfb_subjects
+        st.write("2. Subjects used in the abstinence calculation.")
+        use_all_subjects = st.checkbox(
+            "Use all subjects in the TLFB data",
+            value=True
         )
+        if use_all_subjects:
+            tlfb_data_params["subjects"] = "all"
+        else:
+            tlfb_data_params["subjects"] = st.multiselect(
+                "Choose the subjects of the TLFB data whose abstinence will be calculated.",
+                tlfb_subjects,
+                default=tlfb_subjects
+            )
         st.write("3. TLFB Missing Data Imputation")
         imputation_mode_col, imputation_gap_col, imputation_last_record_col = st.beta_columns(3)
-        tlfb_data_params["imputation_mode"] = imputation_mode_col.selectbox(
-            "TLFB Missing Data Imputation",
+        tlfb_imputation_mode = tlfb_imputation_options_mapped[imputation_mode_col.selectbox(
+            "Imputation Mode",
             tlfb_imputation_options,
-            index=1
-        )
+            index=1,
+            key="tlfb_imputation_mode"
+        )]
         tlfb_data_params["imputation_gap_limit"] = imputation_gap_col.number_input(
             "Maximal Gap for Imputation (days)",
             value=30,
@@ -146,19 +167,33 @@ def _load_tlfb_elements():
             "Last Record Imputation (fill foreword or a number value)",
             value="ffill"
         )
+        if tlfb_imputation_mode == 0:
+            tlfb_imputation_mode = st.number_input("Specify the value to fill the missing TLFB records.")
+        tlfb_data_params["imputation_mode"] = tlfb_imputation_mode
+        st.write("4. TLFB Duplicate Records Action")
         tlfb_data_params["duplicate_mode"] = duplicate_options_mapped[st.selectbox(
-            "4. TLFB Duplicate Records Action",
+            "Select your option",
             duplicate_options,
-            index=len(duplicate_options) - 1
+            index=len(duplicate_options) - 1,
+            key="tlfb_duplicate_mode"
         )]
-        st.write("5. TLFB Outliers Actions")
-        tlfb_data_params["outlier_mode"] = outlier_options_mapped[st.selectbox(
-            "TLFB Outliers (i.e., lower than the min or higher than the max) Action",
-            outlier_options
+        st.write("5. TLFB Outliers Actions (outliers are those lower than the min or higher than the max)")
+        tlfb_data_params["outliers_mode"] = outlier_options_mapped[st.selectbox(
+            "Select your option",
+            outlier_options,
+            key="tlfb_outliers_mode"
         )]
         left_col, right_col = st.beta_columns(2)
-        tlfb_data_params["allowed_min"] = left_col.number_input("Allowed Minimal Daily Value", step=None)
-        tlfb_data_params["allowed_max"] = right_col.number_input("Allowed Maximal Daily Value", step=None)
+        tlfb_data_params["allowed_min"] = left_col.number_input(
+            "Allowed Minimal Daily Value",
+            step=None,
+            value=0.0
+        )
+        tlfb_data_params["allowed_max"] = right_col.number_input(
+            "Allowed Maximal Daily Value",
+            step=None,
+            value=100.0
+        )
 
 
 def _load_visit_elements():
@@ -178,48 +213,49 @@ def _load_visit_elements():
     ----- | ----- | ----- | ----- | ----- | ----- | ----- |
     1000 | 02/03/2019 | 02/10/2019 | 02/17/2019 | 03/09/2019 | 04/07/2019 | 05/06/2019
     1001 | 02/05/2019 | 02/13/2019 | 02/20/2019 | 03/11/2019 | 04/06/2019 | 05/09/2019""")
-    visit_data_params['filepath'] = st.text_input("Specify the file path to the Visit data on your computer.")
-    visit_data_params['file_format'] = st.selectbox("Specify the file format", visit_file_formats)
-    visit_data_params['visits'] = list()
-    visit_subjects = list()
+    visit_data_params['filepath'] = st.text_input(
+        "Specify the file path to the Visit data on your computer.",
+        value=test_visit_filepath
+    )
+    visit_data_params['file_format'] = st.selectbox("Specify the file format", visit_file_formats).lower()
+    visits = list()
     if visit_data_params['filepath']:
         visit_data = ac.VisitData(visit_data_params['filepath'])
-        visit_subjects = sorted(visit_data.subject_ids)
-        visit_data_params['visits'] = sorted(visit_data.visits)
+        visits = sorted(visit_data.visits)
 
     with st.beta_expander("Visit Data Processing Advanced Configurations"):
+        st.write("1. Specify the expected order of the visits (for data normality check)")
         visit_data_params['expected_visits'] = st.multiselect(
-            "1. Set the expected order of the visits (for data normality check)",
-            visit_data_params['visits'],
-            default=visit_data_params['visits']
+            "Please adjust the order accordingly",
+            visits,
+            default=visits
         )
         st.write("2. Visit Missing Dates Imputation")
         left_col0, right_col0 = st.beta_columns(2)
-        visit_data_params["imputation_mode"] = left_col0.selectbox(
+        visit_data_params["imputation_mode"] = visit_imputation_options_mapped[left_col0.selectbox(
             "Imputation Mode",
             visit_imputation_options,
-            index=1
-        )
+            index=1,
+            key="visit_imputation_mode"
+        )]
         visit_data_params["anchor_visit"] = right_col0.selectbox(
             "Anchor Visit for Imputation",
             visit_data_params['expected_visits'],
             index=0
         )
-        visit_data_params["subjects"] = st.multiselect(
-            "3. Choose the subjects of the visit data whose abstinence will be calculated.",
-            visit_subjects,
-            default=visit_subjects
-        )
-        visit_data_params["duplicate_mode"] = st.selectbox(
-            "4. Visit Duplicate Records Action",
+        st.write("3. Visit Duplicate Records Action")
+        visit_data_params["duplicate_mode"] = duplicate_options_mapped[st.selectbox(
+            "Select your option",
             duplicate_options,
-            index=2
-        )
-        st.write("5. Visit Date Range")
-        visit_data_params["outlier_mode"] = st.selectbox(
-            "Visit Date Outliers (i.e., lower than the min or higher than the max) Action",
-            outlier_options
-        )
+            index=len(duplicate_options) - 1,
+            key="visit_duplicate_mode"
+        )]
+        st.write("4. Visit Outliers Action (outliers are those lower than the min or higher than the max)")
+        visit_data_params["outliers_mode"] = outlier_options_mapped[st.selectbox(
+            "Select your option",
+            outlier_options,
+            key="visit_outliers_mode"
+        )]
         left_col, right_col = st.beta_columns(2)
         visit_data_params["allowed_min"] = left_col.date_input(
             "Allowed Minimal Visit Date",
@@ -249,17 +285,43 @@ def _load_bio_elements():
     1000 | 03/04/2019 | 10
     ***
     """)
-    bio_data_params['filepath'] = st.text_input("Specify the file path to the Biochemical data on your computer.")
+    bio_data_params['filepath'] = st.text_input(
+        "Specify the file path to the Biochemical data on your computer.",
+        value=test_bio_filepath
+    )
     with st.beta_expander("Biochemical Data Processing Advanced Configurations"):
+        st.write("1. Specify the cutoff value for biochemically-verified abstinence")
         bio_data_params["cutoff"] = st.number_input(
-            "1. Specify the cutoff value for biochemically-verified abstinence (default: 0.0)",
+            "Equal or below the specified value is considered abstinent.",
             value=0.0,
-            step=None)
-        st.write("2. Biochemical Data Imputation. The calculator will estimate the biochemical levels based on the "
-                 "current measures in the preceding days.")
-        left_col, right_col = st.beta_columns(2)
-        left_col.number_input("Half Life of the Biochemical Measure in Hours")
-        right_col.number_input("The Number of Days of Imputation", value=1, step=1)
+            step=None,
+            key="bio_cutoff"
+        )
+        st.write("2. Override False Negative TLFB Records")
+        bio_data_params["overridden_amount"] = st.number_input(
+            "Specify the TLFB amount to override a false negative TLFB record."
+            "(self-report TLFB says abstinent, but biochemical data invalidate it).",
+            value=tlfb_data_params["cutoff"] + 1
+        )
+        st.write("3. Biochemical Data Interpolation.")
+        st.markdown("The calculator will estimate the biochemical levels based on the "
+                    "current measures in the preceding days using the half-life.")
+        bio_data_params["enable_interpolation"] = st.checkbox(
+            "Enable Data Interpolation"
+        )
+        if bio_data_params["enable_interpolation"]:
+            left_col, right_col = st.beta_columns(2)
+            bio_data_params["half_life"] = left_col.number_input(
+                "Half Life of the Biochemical Measure in Days",
+                value=1
+            )
+            bio_data_params["days_interpolation"] = right_col.number_input(
+                "The Number of Days of Imputation",
+                value=1,
+                step=1
+            )
+            if bio_data_params["half_life"] == 0:
+                raise ValueError("The half life of the biochemical measure should be greater than zero.")
 
 
 def _load_cal_elements():
@@ -269,12 +331,30 @@ def _load_cal_elements():
     pp_col, prol_col, con_col = columns = st.beta_columns(3)
     for i, (abst_option, col) in enumerate(zip(abst_options, columns)):
         col.write(abst_option)
-        col.multiselect("Visits for Abstinence Calculation", visit_data_params['visits'], key=abst_option)
-        col.text_input("Abstinence Variable Names (They'll be inferred by default).", key=abst_option + "_name")
-    pp_col.number_input("The number of days preceding the visit dates", value=0, step=1)
-    prol_col.selectbox("Specify the quit visit", visit_data_params['visits'])
-    prol_col.text_input("Specify lapse definitions (e.g., False, 5 cigs, 3 days). See GitHub page for more details.")
-    con_col.selectbox("Specify the start visit", visit_data_params['visits'])
+        col.multiselect(
+            "Visits for Abstinence Calculation",
+            visit_data_params['expected_visits'],
+            key=abst_option
+        )
+        col.text_input(
+            "Abstinence Variable Names (They'll be inferred by default).",
+            key=abst_option + "_name")
+    pp_col.number_input(
+        "The number of days preceding the visit dates",
+        value=0,
+        step=1
+    )
+    prol_col.selectbox(
+        "Specify the quit visit",
+        visit_data_params['expected_visits']
+    )
+    prol_col.text_input(
+        "Specify lapse definitions (e.g., False, 5 cigs, 3 days). See GitHub page for more details."
+    )
+    con_col.selectbox(
+        "Specify the start visit",
+        visit_data_params['expected_visits']
+    )
 
     with st.beta_expander("Calculator Advanced Configurations"):
         st.selectbox("Abstinence Assumption", calculation_assumptions)
@@ -285,7 +365,8 @@ def _load_cal_elements():
 
 
 def _run_analysis():
-    print("Calculate abstinence")
+    message = f"TLFB: {tlfb_data_params}\n\nVisit: {visit_data_params}\n\nCO: {bio_data_params}"
+    st.write(message)
     tlfb_data = ac.TLFBData(
         tlfb_data_params["filepath"],
         tlfb_data_params["cutoff"],
@@ -299,12 +380,27 @@ def _run_analysis():
     st.write(tlfb_data.recode_outliers(
         tlfb_data_params["allowed_min"],
         tlfb_data_params["allowed_max"],
-        tlfb_data_params["outlier_mode"])
+        tlfb_data_params["outliers_mode"])
     )
-    st.write(tlfb_data.impute_data(
+    imputation_params = [
         tlfb_data_params["imputation_mode"],
-    ))
-    tlfb_data.impute_data()
+        tlfb_data_params["imputation_last_record"],
+        tlfb_data_params["imputation_gap_limit"]
+    ]
+    if bio_data_params["filepath"]:
+        biochemical_data = ac.TLFBData(
+            bio_data_params["filepath"],
+            bio_data_params["cutoff"]
+        )
+        biochemical_data.interpolate_biochemical_data(
+            bio_data_params["half_life"],
+            bio_data_params["days_interpolation"]
+        )
+        biochemical_data.drop_na_records()
+        biochemical_data.check_duplicates()
+        imputation_params.extend((biochemical_data, str(bio_data_params["overridden_amount"])))
+
+    st.write(tlfb_data.impute_data(*imputation_params))
 
 
 def _max_width_():
