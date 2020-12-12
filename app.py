@@ -2,16 +2,15 @@ import base64
 import datetime
 import io
 import sys
-
-import streamlit as st
-from streamlit.report_thread import get_report_ctx
 import abstcal as ac
 import pandas as pd
+import streamlit as st
+from streamlit.report_thread import get_report_ctx
 
+# Hide tracebacks
+# sys.tracebacklimit = 0
 
-sys.tracebacklimit = 0
-
-
+# Use the following session to track data
 # Reference: https://gist.github.com/tvst/036da038ab3e999a64497f42de966a92
 class SessionState(object):
     def __init__(self, **kwargs):
@@ -72,16 +71,9 @@ def get(**kwargs):
     return get_session(id, **kwargs)
 
 
-# from importlib import reload
-# reload(ac)
-
 session_state = get(tlfb_data=None, visit_data=None)
-# if session_state.tlfb_data is None:
-#     st.write("session_state.tlfb_data is None")
-#     session_state.tlfb_data = "test"
-# else:
-#     st.write("not none: session_state.tlfb_data")
 
+# Shared options
 duplicate_options_mapped = {
     "Keep the minimal only": "min",
     "Keep the maximal only": "max",
@@ -89,6 +81,7 @@ duplicate_options_mapped = {
     "Remove all duplicates": False
 }
 duplicate_options = list(duplicate_options_mapped)
+duplicate_options_mapped_reversed = {value: key for key, value in duplicate_options_mapped.items()}
 
 outlier_options_mapped = {
     "Don't examine outliers":                       None,
@@ -96,9 +89,9 @@ outlier_options_mapped = {
     "Impute the outliers with the bounding values": False
 }
 outlier_options = list(outlier_options_mapped)
-duplicate_options_mapped_reversed = {value: key for key, value in duplicate_options_mapped.items()}
 outlier_options_mapped_reversed = {value: key for key, value in outlier_options_mapped.items()}
 
+# TLFB data-related params
 tlfb_data_params = dict.fromkeys([
     "data",
     "cutoff",
@@ -111,7 +104,6 @@ tlfb_data_params = dict.fromkeys([
     "allowed_min",
     "allowed_max"
 ])
-
 tlfb_imputation_options_mapped = {
     "Don't impute missing records":               None,
     "Linear (a linear interpolation in the gap)": "linear",
@@ -120,6 +112,7 @@ tlfb_imputation_options_mapped = {
 }
 tlfb_imputation_options = list(tlfb_imputation_options_mapped)
 
+# Visit data-related params
 visit_data_params = dict.fromkeys([
     "data",
     "data_format",
@@ -132,7 +125,6 @@ visit_data_params = dict.fromkeys([
     "allowed_max",
     "outliers_mode"
 ])
-
 visit_data_formats = [
     "Long",
     "Wide"
@@ -142,9 +134,10 @@ visit_imputation_options_mapped = {
     "The most frequent interval since the anchor visit": "freq",
     "The mean interval since the anchor visit":          "mean"
 }
-visit_imputation_options_mapped_reversed = {value: key for key, value in visit_imputation_options_mapped.items()}
 visit_imputation_options = list(visit_imputation_options_mapped)
+visit_imputation_options_mapped_reversed = {value: key for key, value in visit_imputation_options_mapped.items()}
 
+# Biochemical data-related params
 bio_data_params = dict.fromkeys([
     "data",
     "cutoff",
@@ -159,11 +152,7 @@ bio_data_params = dict.fromkeys([
     "days_interpolation"
 ])
 
-abst_options = [
-    "Point-Prevalence",
-    "Prolonged",
-    "Continuous"
-]
+# Calculator-related params
 abst_pp_params = dict()
 abst_cont_params = dict()
 abst_prol_params = dict()
@@ -174,9 +163,11 @@ calculation_assumptions_mapped = {
     "Responders-Only (RO)":  "ro"
 }
 calculation_assumptions = list(calculation_assumptions_mapped)
-
-
-calculator_data = dict.fromkeys(["tlfb_data", "visit_data"])
+abst_options = [
+    "Point-Prevalence",
+    "Prolonged",
+    "Continuous"
+]
 
 
 def _load_elements():
@@ -596,7 +587,7 @@ def _load_cal_elements():
     ]
     abst_params_shared["including_end"] = st.checkbox(
         "Including each of the visit dates as the end of the time window examined, otherwise the time window of concern"
-        "will end the day before the visit date."
+        " will end the day before the visit date."
     )
     pp_col, prol_col, cont_col = columns = st.beta_columns(3)
     abst_params_list = (abst_pp_params, abst_prol_params, abst_cont_params)
@@ -633,10 +624,17 @@ def _load_cal_elements():
                 visit_data_params['expected_visits']
             )
             lapse_text = col.text_input(
-                "4. Specify lapse definitions. Enter your options and separate them"
-                "by commas. Example: False, 5 cigs. See GitHub page for more details."
+                "4. Specify lapse definitions. Enter your options and separate them "
+                "by commas. When lapses are not allowed, its definition is False. For all definitions, "
+                "please enclose each of them within single quotes. "
+                "Example: 'False', '5 cigs', '5 cigs/14 days'. "
+                "See GitHub page for more details."
             )
-            abst_params["lapse_definitions"] = eval(f"[{lapse_text}]")
+            definitions = eval(f"[{lapse_text}]")
+            for i, definition in enumerate(definitions):
+                if definition.lower() == "false":
+                    definitions[i] = False
+            abst_params["lapse_definitions"] = definitions
             abst_params["grace_period"] = col.slider(
                 "5. Specify the grace period in days (default: 14 days)",
                 value=14,
